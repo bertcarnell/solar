@@ -1,0 +1,95 @@
+---
+title: "Solar Panel Business Case"
+author: "Rob Carnell"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(ggplot2)
+require(stringr)
+```
+
+```{r data, include=FALSE}
+actual <- read.csv("ActualData.csv")
+
+forecast <- read.csv("ForecastData.csv")
+forecast$yearmonth <- paste0(forecast$Year, "-", stringr::str_pad(forecast$Month, pad = "0", width = 2))
+forecast$kWh <- as.numeric(gsub(",", "", forecast$kWh))
+forecast$Transmission <- as.numeric(gsub("[$]", "", forecast$Transmission))
+forecast$Customer <- as.numeric(gsub("[$]", "", forecast$Customer))
+forecast$Distribution <- as.numeric(gsub("[$]", "", forecast$Distribution))
+forecast$Generation <- as.numeric(gsub("[$]", "", forecast$Generation))
+```
+
+## Forecast
+
+### Usage Data
+
+```{r}
+ggplot(forecast, aes(x = yearmonth, y = kWh)) + geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  geom_vline(aes(xintercept = "2020-03"), col = "red", lty = 2) +
+  geom_text(aes(x = "2020-03", y = 1200), label = "EV Purchased", angle = 90, vjust = 1)
+```
+
+```{r include=FALSE}
+forecast_usage_per_year <- mean(forecast$kWh[16:length(forecast$kWh)])*12
+forecast_trans_per_year <- mean(forecast$Transmission[28:40])*12
+forecast_dist_per_year <- mean(forecast$Distribution[28:40])*12
+forecast_cust_per_year <- forecast$Customer[40]*12
+forecast_gen_per_year <- mean(forecast$kWh[16:length(forecast$kWh)])*12 * forecast$Generation.per.kWh[40]
+forecast_bill_total <- forecast_trans_per_year + forecast_dist_per_year + forecast_cust_per_year + forecast_gen_per_year
+blue_raven_production <- 13380
+ecohouse_production <- 15453
+blue_raven_eff <- .92
+ecohouse_eff <- 0.8
+```
+
+- Usage per year (KWh): `r scales::comma(forecast_usage_per_year)`
+- Transmission Cost per year: `r scales::dollar(forecast_trans_per_year)`
+- Distribution Cost per year: `r scales::dollar(forecast_dist_per_year)`
+- Customer Cost per year: `r scales::dollar(forecast_cust_per_year)`
+- Generation Cost per year: `r scales::dollar(forecast_gen_per_year)`
+- Bill Total: `r scales::dollar(forecast_bill_total)`
+
+Assumptions:
+
+- Blue Raven:
+    - Panels: 32
+    - Total Generation (KW): 12.8
+    - W per panel: 400
+    - Yearly (KWh): 13,380
+    - Total Cost: $46,341
+    - Tax Break: $12,049
+    - Net Cost: `r scales::dollar(46341-12049)`
+    - 25 yr Efficiency: `r scales::percent(blue_raven_eff)`
+- EcoHouse
+    - Panels: 39
+    - Total Generation (KW): 14.04
+    - W per panel: 360
+    - Yearly (KWh): 15,453
+    - Total Cost: $42,500
+    - Tax Break: $12,750
+    - Net Cost: `r scales::dollar(42500-12750)`
+    - 25 yr Efficiency: scales::percent(ecohouse_eff)
+
+Energy Inflation: 4%
+Overall Inflation: 2%
+
+```{r}
+years <- 2022:2052
+usage <- c(15408, rep(15285, 30))
+cost_no_solar <- c(2077, forecast_bill_total*(1+0.04)^(1:30))
+1-(.92)^(1/30)
+generation_blue <- c(0, blue_raven_production*(blue_raven_eff^(1/25))^(1:30))
+generation_eco <- c(0, ecohouse_production*(ecohouse_eff^(1/25))^(1:30))
+offset_blue <- c(-46341+12049, rep(0, 30)) + generation_blue*forecast$Generation.per.kWh[40]*(1+0.04)^(0:30)
+offset_eco <- c(-42500+12750, rep(0, 30)) + generation_eco*forecast$Generation.per.kWh[40]*(1+0.04)^(0:30)
+```
+
+Net Present Value:
+- Blue Raven: `r sum(offset_blue[1:26]*(1-0.02)^(0:25))`
+- EcoHouse: `r sum(offset_eco[1:26]*(1-0.02)^(0:25))`
