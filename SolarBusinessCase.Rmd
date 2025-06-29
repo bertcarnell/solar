@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 
 require(ggplot2)
 require(stringr)
@@ -22,20 +22,30 @@ forecast$Transmission <- as.numeric(gsub("[$]", "", forecast$Transmission))
 forecast$Customer <- as.numeric(gsub("[$]", "", forecast$Customer))
 forecast$Distribution <- as.numeric(gsub("[$]", "", forecast$Distribution))
 forecast$Generation <- as.numeric(gsub("[$]", "", forecast$Generation))
+forecast$Bill.Total <- as.numeric(gsub("[$]", "", forecast$Bill.Total))
+
+actual$Bill.Start <- lubridate::mdy(actual$Bill.Start)
 ```
+
+## Introduction
 
 ## Forecast
 
-### Usage Data
+Goal: Determine which, if any, of the solar quotes have a positive net present
+value based on historical usage data.
+
+### Usage Data (Apr 2029 to July 2022)
 
 ```{r}
 ggplot(forecast, aes(x = yearmonth, y = kWh)) + geom_point() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   geom_vline(aes(xintercept = "2020-03"), col = "red", lty = 2) +
-  geom_text(aes(x = "2020-03", y = 1200), label = "EV Purchased", angle = 90, vjust = 1)
+  geom_text(x = "2020-03", y = 1200, label = "EV Purchased", angle = 90, vjust = 1)
 ```
 
 ```{r include=FALSE}
+actual_usage_previous_year <- sum(forecast$kWh[(nrow(forecast)-11):nrow(forecast)])
+actual_cost_previous_year <- sum(forecast$Bill.Total[(nrow(forecast)-11):nrow(forecast)])
 forecast_usage_per_year <- mean(forecast$kWh[16:length(forecast$kWh)])*12
 forecast_trans_per_year <- mean(forecast$Transmission[28:40])*12
 forecast_dist_per_year <- mean(forecast$Distribution[28:40])*12
@@ -46,6 +56,12 @@ blue_raven_production <- 13380
 ecohouse_production <- 15453
 blue_raven_eff <- .92
 ecohouse_eff <- 0.8
+blue_raven_total_cost <- 46341
+blue_raven_tax_break <- 12049
+eco_total_cost <- 42500
+eco_tax_break <- 12750
+energy_inflation <- 0.04
+inflation <- 0.02
 ```
 
 - Usage per year (KWh): `r scales::comma(forecast_usage_per_year)`
@@ -55,41 +71,260 @@ ecohouse_eff <- 0.8
 - Generation Cost per year: `r scales::dollar(forecast_gen_per_year)`
 - Bill Total: `r scales::dollar(forecast_bill_total)`
 
-Assumptions:
+### Options for Solar Systems
 
 - Blue Raven:
     - Panels: 32
-    - Total Generation (KW): 12.8
     - W per panel: 400
+    - Total Generation (KW): 12.8 = 32*400
     - Yearly (KWh): 13,380
-    - Total Cost: $46,341
-    - Tax Break: $12,049
-    - Net Cost: `r scales::dollar(46341-12049)`
+    - Total Cost: `r scales::dollar(blue_raven_total_cost)`
+    - Tax Break: `r scales::dollar(blue_raven_tax_break)`
+    - Net Cost: `r scales::dollar(blue_raven_total_cost-blue_raven_tax_break)`
     - 25 yr Efficiency: `r scales::percent(blue_raven_eff)`
 - EcoHouse
     - Panels: 39
-    - Total Generation (KW): 14.04
     - W per panel: 360
+    - Total Generation (KW): 14.04 = 39*360
     - Yearly (KWh): 15,453
-    - Total Cost: $42,500
-    - Tax Break: $12,750
-    - Net Cost: `r scales::dollar(42500-12750)`
-    - 25 yr Efficiency: scales::percent(ecohouse_eff)
+    - Total Cost: `r scales::dollar(eco_total_cost)`
+    - Tax Break: `r scales::dollar(eco_tax_break)`
+    - Net Cost: `r scales::dollar(eco_total_cost-eco_tax_break)`
+    - 25 yr Efficiency: `r scales::percent(ecohouse_eff)`
 
-Energy Inflation: 4%
-Overall Inflation: 2%
+### Assumptions:
+
+- Energy Inflation: `r scales::percent(energy_inflation)`
+- Overall Inflation: `r scales::percent(inflation)`
 
 ```{r}
-years <- 2022:2052
-usage <- c(15408, rep(15285, 30))
-cost_no_solar <- c(2077, forecast_bill_total*(1+0.04)^(1:30))
-1-(.92)^(1/30)
-generation_blue <- c(0, blue_raven_production*(blue_raven_eff^(1/25))^(1:30))
-generation_eco <- c(0, ecohouse_production*(ecohouse_eff^(1/25))^(1:30))
-offset_blue <- c(-46341+12049, rep(0, 30)) + generation_blue*forecast$Generation.per.kWh[40]*(1+0.04)^(0:30)
-offset_eco <- c(-42500+12750, rep(0, 30)) + generation_eco*forecast$Generation.per.kWh[40]*(1+0.04)^(0:30)
+npv_data <- data.frame(
+  year = 2022:2052,
+  usage = c(actual_usage_previous_year, rep(forecast_usage_per_year, 30)),
+  cost_no_solar = c(actual_cost_previous_year, 
+                   forecast_bill_total*(1+energy_inflation)^(1:30)),
+  generation_blue = c(0, blue_raven_production*(blue_raven_eff^(1/25))^(1:30)),
+  generation_eco = c(0, ecohouse_production*(ecohouse_eff^(1/25))^(1:30))) |>
+  dplyr::mutate(
+    offset_blue = c(-(blue_raven_total_cost-blue_raven_tax_break), rep(0, 30)) +
+      generation_blue*forecast$Generation.per.kWh[40]*(1+energy_inflation)^(0:30),
+    offset_eco = c(-(eco_total_cost-eco_tax_break), rep(0, 30)) +
+      generation_eco*forecast$Generation.per.kWh[40]*(1+energy_inflation)^(0:30))
 ```
 
-Net Present Value:
-- Blue Raven: `r sum(offset_blue[1:26]*(1-0.02)^(0:25))`
-- EcoHouse: `r sum(offset_eco[1:26]*(1-0.02)^(0:25))`
+### Forecast Timeseries
+
+```{r}
+ggplot(npv_data, aes(x = year, y = cumsum(usage))) + 
+  geom_point() + 
+  geom_line() +
+  labs(x = "", y = "Cumulative Energy Usage (kWh)") +
+  scale_y_continuous(labels = scales::comma_format())
+```
+
+```{r}
+ggplot(npv_data |>
+         reshape2::melt(id.vars = "year") |>
+         dplyr::filter(variable %in% c("cost_no_solar", "offset_blue", "offset_eco")) |>
+         dplyr::group_by(variable) |>
+         dplyr::mutate(value = cumsum(value)) |>
+         dplyr::ungroup() |>
+         dplyr::mutate(variable = factor(variable, labels = c("Cumulative Base Cost", "Cumulative value of Blue Raven", "Cumulative value of Ecohouse"))), 
+       aes(x = year, y = value, group = variable, col = variable)) + 
+  geom_point() + 
+  geom_line() +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(x = "", y = "", col = "")
+```
+
+### Calculate 25 yr Net Present Value
+
+- Blue Raven: `r sum(npv_data$offset_blue[1:26]*(1-inflation)^(0:25))`
+- EcoHouse: `r sum(npv_data$offset_eco[1:26]*(1-inflation)^(0:25))`
+
+## Temperature vs Energy Forecast
+
+```{r, include=FALSE}
+model_data <- data.frame(kWh = forecast$kWh[-1],
+                         AvgTemp = forecast$AvgTemp[-1],
+                         AvgTemp2 = forecast$AvgTemp[-1]^2,
+                         Days = forecast$Days[-1],
+                         kWh_per_day = forecast$kWh[-1] / forecast$Days[-1],
+                         month = forecast$Month[-1])
+lm1 <- lm(kWh_per_day ~ AvgTemp + AvgTemp2, data = model_data)
+
+model_data$pred <- predict(lm1)
+```
+
+### Energy usage vs Temperature
+
+```{r}
+ggplot(forecast, aes(x = yearmonth, y = AvgTemp)) +
+  geom_point() +
+  labs(x = "Bill Month", y = "Average Temperature (F)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+### Energy Usage vs Temperature
+
+```{r}
+ggplot(model_data, aes(x = AvgTemp, y = kWh)) +
+  geom_point() +
+  labs(x = "Month Average Temperature", y = "Monthly Total kWh")
+```
+
+### Energy Usage per Day vs Temperature
+
+Energy usage per day should remove some variability due to months of different lengths
+
+```{r}
+ggplot(model_data, aes(x = AvgTemp, y = kWh_per_day)) +
+  geom_point() +
+  geom_line(aes(x = AvgTemp, y = pred), col = "red", lty = 2) +
+  labs(x = "Month Average Temperature", y = "kWh Per Day")
+```
+
+### Fit
+
+```{r}
+plot(lm1, which = 1)
+plot(lm1, which = 2)
+```
+
+## Actuals and Forecast
+
+```{r}
+X <- actual |>
+  dplyr::filter(Bill.Start > as.Date("2022-08-01")) |>
+  dplyr::rename(total_kwh = kWh,
+                delivered_kwh = Delivered..kWh.,
+                received_kwh = Received..kWh.,
+                generation_supply = Generation..Supply.) |>
+  dplyr::mutate(home_used = delivered_kwh + received_kwh + Solar.Production,
+                transmission_per_kwh = Transmission / total_kwh,
+                distribution_per_kwh = Distribution / total_kwh,
+                forecast_distribution_per_kwh = ifelse(total_kwh > 0, Distribution / total_kwh, 0))
+
+for (i in 2:nrow(X)) {
+  if (X$transmission_per_kwh[i] == 0) X$transmission_per_kwh[i] <- X$transmission_per_kwh[i-1]
+  if (X$forecast_distribution_per_kwh[i] == 0) X$forecast_distribution_per_kwh[i] <- X$forecast_distribution_per_kwh[i-1]
+}
+
+Y <- data.frame(Bill.Start = rep(as.Date(NA), 400),
+                Bill.End = rep(as.character(NA), 400),
+                Year = rep(NA_integer_, 400),
+                Month = rep(NA_integer_, 400),
+                Days = rep(NA_integer_, 400),
+                total_kwh = rep(NA_integer_, 400),
+                delivered_kwh = rep(NA_integer_, 400),
+                received_kwh = rep(NA_integer_, 400),
+                Transmission = rep(as.numeric(NA), 400),
+                generation_supply = rep(as.numeric(NA), 400),
+                Distribution = rep(as.numeric(NA), 400),
+                Customer = rep(NA_integer_, 400),
+                Generation.per.kWh = rep(as.numeric(NA), 400),
+                Generation = rep(as.numeric(NA), 400),
+                AvgTemp = rep(NA_integer_, 400),
+                Solar.Production = rep(as.numeric(NA), 400),
+                Bill.Total = rep(as.numeric(NA), 400),
+                home_used = rep(as.numeric(NA), 400),
+                transmission_per_kwh = rep(as.numeric(NA, 400)),
+                distribution_per_kwh = rep(as.numeric(NA, 400)),
+                forecast_distribution_per_kwh = rep(as.numeric(NA, 400)))
+X2 <- rbind(X, Y)
+
+for (i in (nrow(X) + 1):(nrow(X) + 400)) {
+  X2$Month[i] = X2$Month[i-12]
+  X2$Year[i] = X2$Year[i-12] + 1
+  ind <- which(X$Month == X2$Month[i])
+  X2$Days[i] = mean(X$Days[ind])
+  X2$AvgTemp[i] = mean(X$AvgTemp[ind])
+  X2$transmission_per_kwh[i] = X2$transmission_per_kwh[i-1]
+  X2$forecast_distribution_per_kwh[i] = X2$forecast_distribution_per_kwh[i-1]
+  X2$Generation.per.kWh[i] = X2$Generation.per.kWh[i-1]
+}
+
+X2$forecast_total_kwh = pmax(X2$home_used, (coef(lm1)[1] + coef(lm1)[2]*X2$AvgTemp + coef(lm1)[3]*X2$AvgTemp^2)*X2$Days, na.rm = TRUE)
+
+X2 <- X2 |>
+  dplyr::mutate(forecast_transmission = forecast_total_kwh * transmission_per_kwh,
+                forecast_distribution = forecast_total_kwh * forecast_distribution_per_kwh,
+                forecast_customer = 10,
+                forecast_generation = forecast_total_kwh * Generation.per.kWh,
+                forecast_total = forecast_transmission + forecast_distribution + forecast_customer + forecast_generation,
+                estimated_save = ifelse(!is.na(Bill.Total), forecast_total - Bill.Total, forecast_total),
+                total_cash_flow = estimated_save)
+
+X2$total_cash_flow[1] <- X2$total_cash_flow[1] - 42500
+X2$total_cash_flow[7] <- X2$total_cash_flow[7] + 12750
+
+X2$npv <- 0
+i_switch <- 0
+X2$npv[1] <- X2$total_cash_flow[1]
+for (i in 2:nrow(X2)) {
+  X2$npv[i] <- sum(X2$total_cash_flow[1:i]*(1-0.02/12)^(0:(i-1)))
+  if (X2$npv[i] >= 0 & X2$npv[i-1] < 0) i_switch = i
+}
+
+X2$year_month <- paste0(X2$Year, "-", stringr::str_pad(X2$Month, pad = "0", width = 2))
+```
+
+#### Actual Temp since Installation
+
+```{r}
+ggplot(X2 |>
+         dplyr::filter(!is.na(Bill.Start)), aes(x = Bill.Start, y = AvgTemp)) + 
+  geom_point() +
+  labs(x = "", y = "Month Average Temperature (F)")
+```
+
+#### Actual Usage since Installation
+
+```{r}
+ggplot(X2 |>
+         dplyr::filter(!is.na(Bill.Start)) |>
+         dplyr::select(Bill.Start, forecast_total_kwh, delivered_kwh, received_kwh, Solar.Production) |>
+         reshape2::melt(id.vars = "Bill.Start") |>
+         dplyr::mutate(variable = factor(variable, labels = c("Forecast Total Demand (kWh)",
+                                                              "From Grid (kWh)",
+                                                              "To Grid (kWh)",
+                                                              "Solar Production (kWh)"))), 
+       aes(x = Bill.Start, y = value, group = variable, col = variable)) + 
+  geom_point()
+```
+
+```{r}
+temp <- X2 |>
+  dplyr::mutate(forecast_total_kwh = cumsum(forecast_total_kwh)) |>
+  dplyr::filter(Month == 12)
+ggplot(temp, aes(x = Year, y = forecast_total_kwh)) + 
+  geom_point() +
+  geom_line() +
+  labs(x = "", y = "Forecasted Cumulative Total kWh since Installation")
+```
+
+```{r}
+temp <- X2 |>
+  dplyr::mutate(total_cash_flow = cumsum(total_cash_flow)) |>
+  dplyr::filter(Month == 12)
+ggplot(temp, aes(x = Year, y = total_cash_flow)) + 
+  geom_point() +
+  geom_line() +
+  labs(x = "", y = "Forecasted Nominal Cumulative Cash Flow") +
+  geom_hline(yintercept = 0, lty = 2, col = "red")
+```
+
+```{r}
+ggplot(temp, aes(x = Year, y = npv)) + 
+  geom_point() +
+  geom_line() +
+  labs(x = "", y = "Forecasted Real Cumulative Cash Flow") +
+  geom_hline(yintercept = 0, lty = 2, col = "red") +
+  geom_vline(xintercept = X2$Year[i_switch], lty = 2, col = "red") +
+  scale_y_continuous(labels = scales::dollar_format())
+```
+
+- Break Even Year:  `r X2$Year[i_switch]`
+- 20 yr NPV: `r ind <- which(X2$Year == 2042 & X2$Month == 8); scales::dollar(X2$npv[ind])`
+- 25 yr NPV: `r ind <- which(X2$Year == 2047 & X2$Month == 8); scales::dollar(X2$npv[ind])`
+
