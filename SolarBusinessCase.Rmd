@@ -10,19 +10,28 @@ knitr::opts_chunk$set(echo = FALSE)
 
 require(ggplot2)
 require(stringr)
+require(lubridate)
 ```
 
 ```{r data, include=FALSE}
+stopifnot(file.exists("ActualData.csv"))
+stopifnot(file.exists("ForecastData.csv"))
+
 actual <- read.csv("ActualData.csv")
+names(actual)[1] <- "Bill.Start"
+
+strip_dollar_sign_or_comma <- function(x) as.numeric(gsub("[,$]", "", x))
 
 forecast <- read.csv("ForecastData.csv")
+names(forecast)[1] <- "Year"
+
 forecast$yearmonth <- paste0(forecast$Year, "-", stringr::str_pad(forecast$Month, pad = "0", width = 2))
-forecast$kWh <- as.numeric(gsub(",", "", forecast$kWh))
-forecast$Transmission <- as.numeric(gsub("[$]", "", forecast$Transmission))
-forecast$Customer <- as.numeric(gsub("[$]", "", forecast$Customer))
-forecast$Distribution <- as.numeric(gsub("[$]", "", forecast$Distribution))
-forecast$Generation <- as.numeric(gsub("[$]", "", forecast$Generation))
-forecast$Bill.Total <- as.numeric(gsub("[$]", "", forecast$Bill.Total))
+forecast$kWh <- strip_dollar_sign_or_comma(forecast$kWh)
+forecast$Transmission <- strip_dollar_sign_or_comma(forecast$Transmission)
+forecast$Customer <- strip_dollar_sign_or_comma(forecast$Customer)
+forecast$Distribution <- strip_dollar_sign_or_comma(forecast$Distribution)
+forecast$Generation <- strip_dollar_sign_or_comma(forecast$Generation)
+forecast$Bill.Total <- strip_dollar_sign_or_comma(forecast$Bill.Total)
 
 actual$Bill.Start <- lubridate::mdy(actual$Bill.Start)
 ```
@@ -137,10 +146,12 @@ ggplot(npv_data |>
   labs(x = "", y = "", col = "")
 ```
 
-### Calculate 25 yr Net Present Value
+### Calculate Forecasted 25 yr Net Present Value
 
-- Blue Raven: `r sum(npv_data$offset_blue[1:26]*(1-inflation)^(0:25))`
-- EcoHouse: `r sum(npv_data$offset_eco[1:26]*(1-inflation)^(0:25))`
+- Blue Raven: `r scales::dollar(sum(npv_data$offset_blue[1:26]*(1-inflation)^(0:25)))`
+- EcoHouse: `r scales::dollar(sum(npv_data$offset_eco[1:26]*(1-inflation)^(0:25)))`
+
+The Ecohouse solar options was selected
 
 ## Temperature vs Energy Forecast
 
@@ -280,17 +291,29 @@ ggplot(X2 |>
 
 #### Actual Usage since Installation
 
+- **Total Demand** - The amount of power used in the home
+- **From Grid** - The amount of power needed by the house from the grid
+- **To Grid** - The amount of power supplied by the solar panels to the grid
+- **Solar Production** - The amount of power created by the solar panels
+
+Solar Production + From Grid = Actual Total Demand - To Grid
+
+"To Grid" < 0
+
+
 ```{r}
 ggplot(X2 |>
          dplyr::filter(!is.na(Bill.Start)) |>
          dplyr::select(Bill.Start, forecast_total_kwh, delivered_kwh, received_kwh, Solar.Production) |>
          reshape2::melt(id.vars = "Bill.Start") |>
-         dplyr::mutate(variable = factor(variable, labels = c("Forecast Total Demand (kWh)",
-                                                              "From Grid (kWh)",
-                                                              "To Grid (kWh)",
-                                                              "Solar Production (kWh)"))), 
+         dplyr::mutate(variable = factor(variable, labels = c("Actual Total Demand",
+                                                              "From Grid",
+                                                              "To Grid",
+                                                              "Solar Production"))), 
        aes(x = Bill.Start, y = value, group = variable, col = variable)) + 
-  geom_point()
+  geom_point() +
+  labs(x = "", y = "Power (kWh)", col = "") +
+  scale_y_continuous(labels = scales::comma_format())
 ```
 
 ```{r}
@@ -300,31 +323,41 @@ temp <- X2 |>
 ggplot(temp, aes(x = Year, y = forecast_total_kwh)) + 
   geom_point() +
   geom_line() +
-  labs(x = "", y = "Forecasted Cumulative Total kWh since Installation")
+  labs(x = "", y = "Forecasted Cumulative Total kWh since Installation") +
+  scale_y_continuous(labels = scales::comma_format())
 ```
 
 ```{r}
 temp <- X2 |>
-  dplyr::mutate(total_cash_flow = cumsum(total_cash_flow)) |>
-  dplyr::filter(Month == 12)
-ggplot(temp, aes(x = Year, y = total_cash_flow)) + 
+  dplyr::mutate(cum_total_cash_flow = cumsum(total_cash_flow)) |>
+  dplyr::filter(Month == 12, Year <= 2052)
+temp2 <- X2 |>
+  dplyr::group_by(Year) |>
+  dplyr::summarize(total_cash_flow = sum(total_cash_flow)) |>
+  dplyr::filter(Year <= 2052)
+ggplot(temp, aes(x = Year, y = cum_total_cash_flow)) + 
   geom_point() +
   geom_line() +
   labs(x = "", y = "Forecasted Nominal Cumulative Cash Flow") +
-  geom_hline(yintercept = 0, lty = 2, col = "red")
+  geom_hline(yintercept = 0, lty = 2, col = "red") +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  geom_col(data = temp2, mapping = aes(x = Year, y = total_cash_flow), alpha = 0.5)
 ```
 
 ```{r}
 ggplot(temp, aes(x = Year, y = npv)) + 
   geom_point() +
   geom_line() +
-  labs(x = "", y = "Forecasted Real Cumulative Cash Flow") +
+  labs(x = "", y = "Forecasted Real Cumulative Cash Flow\n2022 Dollars") +
   geom_hline(yintercept = 0, lty = 2, col = "red") +
   geom_vline(xintercept = X2$Year[i_switch], lty = 2, col = "red") +
   scale_y_continuous(labels = scales::dollar_format())
+
 ```
 
+### Forecast Return on Investment
+
 - Break Even Year:  `r X2$Year[i_switch]`
-- 20 yr NPV: `r ind <- which(X2$Year == 2042 & X2$Month == 8); scales::dollar(X2$npv[ind])`
-- 25 yr NPV: `r ind <- which(X2$Year == 2047 & X2$Month == 8); scales::dollar(X2$npv[ind])`
+- 20 yr NPV in 2042: `r ind <- which(X2$Year == 2042 & X2$Month == 8); scales::dollar(X2$npv[ind])`
+- 25 yr NPV in 2047: `r ind <- which(X2$Year == 2047 & X2$Month == 8); scales::dollar(X2$npv[ind])`
 
