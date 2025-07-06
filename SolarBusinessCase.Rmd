@@ -40,12 +40,12 @@ actual$Bill.Start <- lubridate::mdy(actual$Bill.Start)
 
 ## Introduction
 
-## Forecast
+## Pre-Installation Forecast
 
 Goal: Determine which, if any, of the solar quotes have a positive net present
 value based on historical usage data.
 
-### Usage Data (Apr 2029 to July 2022)
+### Usage Data (Apr 2019 to July 2022)
 
 ```{r}
 ggplot(forecast, aes(x = yearmonth, y = kWh)) + geom_point() +
@@ -155,7 +155,7 @@ ggplot(npv_data |>
 
 The Ecohouse solar options was selected
 
-## Temperature vs Energy Forecast
+## Pre-Installation Temperature vs Energy Forecast
 
 ```{r, include=FALSE}
 model_data <- data.frame(kWh = forecast$kWh[-1],
@@ -169,7 +169,7 @@ lm1 <- lm(kWh_per_day ~ AvgTemp + AvgTemp2, data = model_data)
 model_data$pred <- predict(lm1)
 ```
 
-### Energy usage vs Temperature
+### Monthly Temperature Timeseries
 
 ```{r}
 ggplot(forecast, aes(x = yearmonth, y = AvgTemp)) +
@@ -197,14 +197,14 @@ ggplot(model_data, aes(x = AvgTemp, y = kWh_per_day)) +
   labs(x = "Month Average Temperature", y = "kWh Per Day")
 ```
 
-### Fit
+### Regression Diagnositics and Fit
 
 ```{r}
 plot(lm1, which = 1)
 plot(lm1, which = 2)
 ```
 
-## Actuals and Forecast
+## Actuals and Forecast (Post-Installation)
 
 ```{r}
 X <- actual |>
@@ -282,7 +282,7 @@ for (i in 2:nrow(X2)) {
 X2$year_month <- paste0(X2$Year, "-", stringr::str_pad(X2$Month, pad = "0", width = 2))
 ```
 
-#### Actual Temp since Installation
+#### Actual Temp
 
 ```{r}
 ggplot(X2 |>
@@ -298,9 +298,9 @@ ggplot(X2 |>
 - **To Grid** - The amount of power supplied by the solar panels to the grid
 - **Solar Production** - The amount of power created by the solar panels
 
-Solar Production + From Grid = Actual Total Demand - To Grid
+$$Solar\ Production\ +\ From\ Grid = Actual\ Total\ Demand\ -\ To\ Grid$$
 
-"To Grid" < 0
+$$To\ Grid < 0$$
 
 
 ```{r}
@@ -317,6 +317,23 @@ ggplot(X2 |>
   labs(x = "", y = "Power (kWh)", col = "") +
   scale_y_continuous(labels = scales::comma_format())
 ```
+
+### Comparison of Demand and Solar Production
+
+```{r}
+ggplot(X2 |>
+         dplyr::filter(!is.na(Bill.Start)) |>
+         dplyr::select(Bill.Start, forecast_total_kwh, Solar.Production) |>
+         reshape2::melt(id.vars = "Bill.Start") |>
+         dplyr::mutate(variable = factor(variable, labels = c("Actual Total Demand",
+                                                              "Solar Production"))), 
+       aes(x = Bill.Start, y = value, group = variable, col = variable)) + 
+  geom_point() +
+  geom_line() +
+  labs(x = "", y = "Power (kWh)", col = "") +
+  scale_y_continuous(labels = scales::comma_format())
+```
+
 
 ```{r}
 temp <- X2 |>
