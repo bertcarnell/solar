@@ -51,7 +51,8 @@ value based on historical usage data.
 ggplot(forecast, aes(x = yearmonth, y = kWh)) + geom_point() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   geom_vline(aes(xintercept = "2020-03"), col = "red", lty = 2) +
-  geom_text(x = "2020-03", y = 1200, label = "EV Purchased", angle = 90, vjust = 1)
+  geom_text(x = "2020-03", y = 1200, label = "EV Purchased", angle = 90, vjust = 1) +
+  labs(x = "", y = "kWh")
 ```
 
 ```{r include=FALSE}
@@ -315,7 +316,9 @@ ggplot(X2 |>
        aes(x = Bill.Start, y = value, group = variable, col = variable)) + 
   geom_point() +
   labs(x = "", y = "Power (kWh)", col = "") +
-  scale_y_continuous(labels = scales::comma_format())
+  scale_y_continuous(labels = scales::comma_format()) +
+  geom_vline(xintercept = as.Date("2025-01-31"), lty = 2) +
+  geom_text(x = as.Date("2025-03-01"), y = 0, label = "Mach-E EV Purchased", angle = 90, vjust = 1, col = "black", size = 3)
 ```
 
 ### Comparison of Demand and Solar Production
@@ -331,7 +334,10 @@ ggplot(X2 |>
   geom_point() +
   geom_line() +
   labs(x = "", y = "Power (kWh)", col = "") +
-  scale_y_continuous(labels = scales::comma_format())
+  scale_y_continuous(labels = scales::comma_format()) +
+  geom_vline(xintercept = as.Date("2025-01-31"), lty = 2) +
+  geom_text(x = as.Date("2025-03-01"), y = 2000, label = "Mach-E EV Purchased", angle = 90, vjust = 1, col = "black", size = 3)
+
 ```
 
 
@@ -349,7 +355,11 @@ ggplot(temp, aes(x = Year, y = forecast_total_kwh)) +
 ```{r}
 temp <- X2 |>
   dplyr::mutate(cum_total_cash_flow = cumsum(total_cash_flow)) |>
-  dplyr::filter(Month == 12, Year <= 2052)
+  dplyr::filter(Month == 12, Year <= 2052) |>
+  dplyr::left_join(npv_data |>
+                     dplyr::select(year, offset_eco),
+                   by = c("Year" = "year")) |>
+  dplyr::mutate(cum_orig_cash_flow = cumsum(offset_eco))
 temp2 <- X2 |>
   dplyr::group_by(Year) |>
   dplyr::summarize(total_cash_flow = sum(total_cash_flow)) |>
@@ -357,6 +367,7 @@ temp2 <- X2 |>
 ggplot(temp, aes(x = Year, y = cum_total_cash_flow)) + 
   geom_point() +
   geom_line() +
+  geom_point(mapping = aes(x = Year, y = cum_orig_cash_flow), col = "green", shape = 1) +
   labs(x = "", y = "Forecasted Nominal Cumulative Cash Flow") +
   geom_hline(yintercept = 0, lty = 2, col = "red") +
   scale_y_continuous(labels = scales::dollar_format()) +
