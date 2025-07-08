@@ -368,6 +368,7 @@ ggplot(temp, aes(x = Year, y = cum_total_cash_flow)) +
   geom_point() +
   geom_line() +
   geom_point(mapping = aes(x = Year, y = cum_orig_cash_flow), col = "green", shape = 1) +
+  geom_line(mapping = aes(x = Year, y = cum_orig_cash_flow), col = "green", lty = 2) +
   labs(x = "", y = "Forecasted Nominal Cumulative Cash Flow") +
   geom_hline(yintercept = 0, lty = 2, col = "red") +
   scale_y_continuous(labels = scales::dollar_format()) +
