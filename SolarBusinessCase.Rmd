@@ -36,6 +36,14 @@ forecast$Generation <- strip_dollar_sign_or_comma(forecast$Generation)
 forecast$Bill.Total <- strip_dollar_sign_or_comma(forecast$Bill.Total)
 
 actual$Bill.Start <- lubridate::mdy(actual$Bill.Start)
+actual$Bill.End <- lubridate::mdy(actual$Bill.End)
+
+# validate Dates
+stopifnot(all(as.numeric(with(actual, Bill.End - Bill.Start - Days + 1)) == 0))
+# validate Year
+stopifnot(all(actual$Year - lubridate::year(actual$Bill.End) == 0))
+# validate Month
+stopifnot(all(actual$Month - lubridate::month(actual$Month) == 0))
 ```
 
 ## Introduction
@@ -340,6 +348,34 @@ ggplot(X2 |>
 
 ```
 
+### Actual Demand vs Predicted Demand from Avg Temp
+
+```{r warning=FALSE}
+temp <- X2 |>
+  dplyr::filter(!is.na(Bill.End)) |>
+  dplyr::mutate(
+    predicted = predict(lm1, newdata = data.frame(AvgTemp = AvgTemp,
+                                  AvgTemp2 = AvgTemp^2)) * Days,
+    actual = forecast_total_kwh
+  )
+
+ggplot(temp, aes(x = actual, y = predicted)) + 
+  geom_point() +
+  labs(x = "Actual Total Demand", y = "Predicted Total Demand") +
+  geom_abline(slope = 1, intercept = 0, lty = 2, col = "darkgrey") +
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma)
+
+ggplot(temp |>
+         dplyr::select(Bill.End, predicted, actual) |>
+         reshape2::melt(id.vars = "Bill.End"),
+       aes(x = Bill.End, y = value, col = variable, group = variable)) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = "", y = "Total Demand", col = "")
+
+```
 
 ```{r}
 temp <- X2 |>
