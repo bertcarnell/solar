@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = FALSE)
 require(ggplot2)
 require(stringr)
 require(lubridate)
+require(reshape2)
 ```
 
 ```{r data, include=FALSE}
