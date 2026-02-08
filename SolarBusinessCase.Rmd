@@ -22,6 +22,8 @@ stopifnot(file.exists("ForecastData.csv"))
 
 actual <- read.csv("ActualData.csv")
 names(actual)[1] <- "Bill.Start"
+# drop the last column for credit balance
+actual <- actual[,-18]
 
 strip_dollar_sign_or_comma <- function(x) as.numeric(gsub("[,$]", "", x))
 
