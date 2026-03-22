@@ -5,6 +5,12 @@ output:
   html_document:
     includes:
       in_header: header.html
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -48,8 +54,6 @@ stopifnot(all(actual$Year - lubridate::year(actual$Bill.End) == 0))
 # validate Month
 stopifnot(all(actual$Month - lubridate::month(actual$Month) == 0))
 ```
-
-## Introduction
 
 ## Pre-Installation Forecast
 
